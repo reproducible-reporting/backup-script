@@ -218,15 +218,18 @@ def main():
             info(f"Could not access {repository}")
             continue
         archives = _get_borg_archives(config, repository, env)
-        removed = _prune_old_borg_archives(args, repository, env, snapshots, archives)
-        if removed:
-            _compact_borg_repository(args, repository, env)
 
         info(f"Creating new borg archives ({repository})")
         for dt_keep, subvol in snapshots.items():
             if dt_keep in archives:
                 continue
             _create_borg_archive(config, args, repository, env, subvol)
+
+        info(f"Pruning old archives if any ({repository})")
+        removed = _prune_old_borg_archives(args, repository, env, snapshots, archives)
+        if removed:
+            _compact_borg_repository(args, repository, env)
+
 
 
 def _create_btrfs_snapshot(config, args):

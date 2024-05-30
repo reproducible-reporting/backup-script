@@ -6,6 +6,11 @@ You are the only person responsible for any damage caused by the use of this scr
 This script is distributed under the terms of the MIT license.
 See the [LICENSE](LICENSE) file for more details.
 
+Most of the magic in this script is handled by two other tools:
+
+- The script assumes you are using a [BTRFS](https://docs.kernel.org/filesystems/btrfs.html) filesystem for creating snapshots.
+- Backups of the snapshots are made with [Borg](https://www.borgbackup.org/).
+
 ## Basic guidelines
 
 Ideally, backups are performed by a dedicated user account with access to user data and backups.

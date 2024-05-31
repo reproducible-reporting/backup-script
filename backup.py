@@ -16,6 +16,8 @@ The config file has the following format:
 
 ```
 datetime_format: '%Y_%m_%d__%H_%M_%S'  # Datetime format used for snapshots.
+keep_tenminutely: 12  # Number of 10-minutely snapshots that are kept.
+keep_hourly: 24  # Number of hourly snapshots that are kept
 keep_daily: 14  # Number of daily snapshots that are kept
 keep_weekly: 20  # Number of weekly snapshots that are kept
 keep_monthly: 12  # Number of monthly snapshots that are kept
@@ -50,13 +52,17 @@ from datetime import UTC, datetime
 import yaml
 
 
-def grandfatherson(dts, *, daily=0, weekly=0, monthly=0):
+def grandfatherson(dts, *, tenminutely=0, hourly=0, daily=0, weekly=0, monthly=0):
     """Determine which datetimes should be kept and which should be pruned.
 
     Parameters
     ----------
     dts
         A list of datetime objects.
+    tenminutely
+        The number of most recent snapshots that should be kept every ten minutes.
+    hourly
+        The number of most recent hourly snapshots that should be kept.
     daily
         The number of most recent daily snapshots that should be kept.
     weekly
@@ -71,23 +77,36 @@ def grandfatherson(dts, *, daily=0, weekly=0, monthly=0):
     prune_dts
         The datetimes to be pruned.
 
+    Notes
+    -----
+    The most recent date is always kept.
     """
     dts = sorted(dts, reverse=True)
     keep_flags = [False] * len(dts)
     # Always keep the most recent.
     keep_flags[0] = True
 
-    for fmt, need in ("%Y-%m-%d", daily), ("%Y-%W", weekly), ("%Y-%m", monthly):
+    timelines = [
+        ("%Y-%m-%d-%H-%M", tenminutely, 1),
+        ("%Y-%m-%d-%H", hourly, 0),
+        ("%Y-%m-%d", daily, 0),
+        ("%Y-%W", weekly, 0),
+        ("%Y-%m", monthly, 0),
+    ]
+
+    for fmt, need, drop in timelines:
         if need == 0:
             continue
-        # We're already keeping the most recent one, so start counting at 1.
-        have = 1
+        # We're keeping the most recent one, but don't include it in the counts
+        have = 0
         labels = [dt.strftime(fmt) for dt in dts]
+        if drop > 0:
+            labels = [label[:-drop] for label in labels]
         for i in range(len(labels) - 1):
             if labels[i] != labels[i + 1]:
-                keep_flags[i + 1] = True
+                keep_flags[i] = True
                 have += 1
-                if have >= need or need < 0:
+                if have > need or need < 0:
                     break
         # Always keep the last one when we don't have enough.
         if need > 0 and have < need:
@@ -113,6 +132,34 @@ def test_grandfatherson_none():
     assert grandfatherson(dts) == (dts[:1], dts[1:])
 
 
+def test_grandfatherson_tenminutely():
+    dts = [
+        datetime(2022, 5, 5, 17, 30, 0),
+        datetime(2022, 5, 5, 17, 25, 0),
+        datetime(2022, 5, 5, 17, 20, 0),
+        datetime(2022, 5, 5, 16, 55, 0),
+        datetime(2022, 5, 5, 16, 50, 0),
+        datetime(2022, 5, 5, 16, 40, 0),
+        datetime(2022, 5, 5, 16, 30, 0),
+    ]
+    keep_dts = [dts[0], dts[2], dts[4], dts[5]]
+    prune_dts = [dts[1], dts[3], dts[6]]
+    assert grandfatherson(dts, tenminutely=3) == (keep_dts, prune_dts)
+
+
+def test_grandfatherson_hourly():
+    dts = [
+        datetime(2022, 5, 8, 0, 0, 0),
+        datetime(2022, 5, 5, 17, 0, 0),
+        datetime(2022, 5, 5, 16, 30, 0),
+        datetime(2022, 5, 5, 16, 0, 0),
+        datetime(2022, 5, 5, 15, 0, 0),
+    ]
+    keep_dts = [dts[0], dts[1], dts[3]]
+    prune_dts = [dts[2], dts[4]]
+    assert grandfatherson(dts, hourly=3) == (keep_dts, prune_dts)
+
+
 def test_grandfatherson_daily1():
     dts = [
         datetime(2022, 5, 5, 0, 0, 0),
@@ -131,8 +178,8 @@ def test_grandfatherson_daily2():
         datetime(2022, 5, 2, 10, 0, 0),
         datetime(2022, 5, 1, 10, 0, 0),
     ]
-    keep_dts = [dts[0], dts[1], dts[3]]
-    prune_dts = [dts[2], dts[4]]
+    keep_dts = [dts[0], dts[2], dts[3]]
+    prune_dts = [dts[1], dts[4]]
     assert grandfatherson(dts, daily=3) == (keep_dts, prune_dts)
 
 
@@ -150,7 +197,9 @@ def test_grandfatherson_daily_too_few_oldest1():
         datetime(2022, 5, 4, 10, 0, 0),
         datetime(2022, 5, 4, 9, 0, 0),
     ]
-    assert grandfatherson(dts, daily=3) == (dts, [])
+    keep_dts = [dts[0], dts[2]]
+    prune_dts = [dts[1]]
+    assert grandfatherson(dts, daily=3) == (keep_dts, prune_dts)
 
 
 def test_grandfatherson_daily_too_few_oldest2():
@@ -169,29 +218,29 @@ def test_grandfatherson_monthly():
         datetime(2022, 5, 1, 0, 0, 0),
         datetime(2022, 4, 20, 0, 0, 0),
         datetime(2022, 4, 10, 0, 0, 0),
-        datetime(2022, 3, 7, 0, 0, 0),
         datetime(2022, 3, 8, 0, 0, 0),
+        datetime(2022, 3, 7, 0, 0, 0),
         datetime(2022, 2, 8, 0, 0, 0),
     ]
-    keep_dts = [dts[0], dts[4], dts[7]]
-    prune_dts = [dts[1], dts[2], dts[3], dts[5], dts[6], dts[8]]
+    keep_dts = [dts[0], dts[3], dts[5], dts[7]]
+    prune_dts = [dts[1], dts[2], dts[4], dts[6], dts[8]]
     assert grandfatherson(dts, monthly=3) == (keep_dts, prune_dts)
 
 
 def test_grandfatherson_weekly():
     dts = [
-        datetime(2022, 6, 5, 0, 0, 0),
         datetime(2022, 6, 13, 0, 0, 0),
         datetime(2022, 6, 12, 0, 0, 0),
         datetime(2022, 6, 11, 0, 0, 0),
         datetime(2022, 6, 7, 0, 0, 0),
         datetime(2022, 6, 6, 0, 0, 0),
+        datetime(2022, 6, 5, 0, 0, 0),
         datetime(2022, 5, 29, 0, 0, 0),
         datetime(2022, 5, 30, 0, 0, 0),
     ]
     keep_dts, prune_dts = grandfatherson(dts, weekly=3)
-    assert keep_dts == [dts[1], dts[2], dts[0]]
-    assert prune_dts == [dts[3], dts[4], dts[5], dts[7], dts[6]]
+    assert keep_dts == [dts[0], dts[4], dts[7]]
+    assert prune_dts == [dts[1], dts[2], dts[3], dts[5], dts[6]]
 
 
 def parse_args():
@@ -229,7 +278,6 @@ def main():
         removed = _prune_old_borg_archives(args, repository, env, snapshots, archives)
         if removed:
             _compact_borg_repository(args, repository, env)
-
 
 
 def _create_btrfs_snapshot(config, args):
@@ -286,6 +334,8 @@ def _prune_old_btrfs_snapshots(config, args, subvol_new):
     # Determine which to prune
     _, dts_prune = grandfatherson(
         list(snapshots),
+        tenminutely=config["keep_tenminutely"],
+        hourly=config["keep_hourly"],
         daily=config["keep_daily"],
         weekly=config["keep_weekly"],
         monthly=config["keep_monthly"],

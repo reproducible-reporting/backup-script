@@ -17,7 +17,7 @@ The config file has the following format:
 ```
 datetime_format: '%Y_%m_%d__%H_%M_%S'  # Datetime format used for snapshots.
 keep_tenminutely: 12  # Number of 10-minutely snapshots that are kept.
-keep_hourly: 24  # Number of hourly snapshots that are kept
+keep_hourly: 48  # Number of hourly snapshots that are kept
 keep_daily: 14  # Number of daily snapshots that are kept
 keep_weekly: 20  # Number of weekly snapshots that are kept
 keep_monthly: 12  # Number of monthly snapshots that are kept
@@ -47,7 +47,7 @@ import os
 import signal
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 
 import yaml
 
@@ -287,7 +287,7 @@ def _create_btrfs_snapshot(config, args):
             run(split_args, args.dry_run)
 
         info("Making a new snapshot")
-        suffix_new = datetime.now(UTC).strftime(config["datetime_format"])
+        suffix_new = datetime.now().strftime(config["datetime_format"])
         subvol_new = config["btrfs"]["prefix"] + suffix_new
         dn_new = config["btrfs"]["mount"] + subvol_new
         run(
@@ -460,8 +460,7 @@ def _create_borg_archive(config, args, repository, env, subvol):
 
 
 def parse_suffix(suffix, datetime_format):
-    dt = datetime.strptime(suffix, datetime_format)
-    return dt.replace(tzinfo=UTC)
+    return datetime.strptime(suffix, datetime_format)
 
 
 def info(message):

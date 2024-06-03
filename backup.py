@@ -168,7 +168,10 @@ def main(argv: list[str] | None = None):
     args = parse_args(argv)
 
     # Set log level
-    logging.basicConfig(level=logging.ERROR if args.quiet else logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s : %(message)s",
+        level=logging.ERROR if args.quiet else logging.INFO,
+    )
 
     # Load yaml config file
     with open(args.config, encoding="utf-8") as f:

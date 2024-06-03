@@ -261,7 +261,7 @@ def main():
     snapshots = _prune_old_btrfs_snapshots(config, args, subvol_new)
 
     # Work on the borg part
-    env = config["borg"].get("env")
+    env = config["borg"].get("env", {})
     for repository in config["borg"]["repositories"]:
         if not _check_borg_repository(repository, env):
             info(f"Could not access {repository}")
@@ -357,7 +357,7 @@ def _prune_old_btrfs_snapshots(config, args, subvol_new):
     return snapshots
 
 
-def _check_borg_repository(repository, env):
+def _check_borg_repository(repository: str, env: dict):
     try:
         run(["borg", "info", repository], env=(os.environ | env))
     except subprocess.CalledProcessError:

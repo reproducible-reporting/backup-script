@@ -182,17 +182,17 @@ def main(argv: list[str] | None = None):
     env = config["borg"].get("env", {})
     for repository in config["borg"]["repositories"]:
         if not _check_borg_repository(repository, env):
-            LOGGER.info(f"Could not access {repository}")
+            LOGGER.info("Could not access %s", repository)
             continue
         archives = _get_borg_archives(config, repository, env)
 
-        LOGGER.info(f"Creating new borg archives ({repository})")
+        LOGGER.info("Creating new borg archives (%s)", repository)
         for dt_keep, subvol in snapshots.items():
             if dt_keep in archives:
                 continue
             _create_borg_archive(config, args.dry_run, repository, env, subvol)
 
-        LOGGER.info(f"Pruning old archives if any ({repository})")
+        LOGGER.info("Pruning old archives if any (%s)", repository)
         removed = _prune_old_borg_archives(args.dry_run, repository, env, snapshots, archives)
         if removed:
             _compact_borg_repository(args.dry_run, repository, env)
@@ -292,7 +292,7 @@ def _get_borg_archives(
     config: dict[str], repository: str, env: dict[str, str]
 ) -> dict[datetime, str]:
     """Get a list of archives in the Borg repository."""
-    LOGGER.info(f"Getting a list of borg archives ({repository})")
+    LOGGER.info("Getting a list of borg archives (%s)", repository)
     prefix = config["borg"]["prefix"]
     output = run(["borg", "list", repository], env=(os.environ | env), capture=True)
     archives = {}
@@ -316,7 +316,7 @@ def _prune_old_borg_archives(
     archives: dict[datetime, str],
 ) -> bool:
     """Delete old Bort archives using the GFS algorithm."""
-    LOGGER.info(f"Removing old borg archives ({repository})")
+    LOGGER.info("Removing old borg archives (%s)", repository)
     removed = False
     for dt, archive in archives.items():
         if dt not in snapshots:
@@ -335,7 +335,7 @@ def _prune_old_borg_archives(
 
 def _compact_borg_repository(dry_run: bool, repository: str, env: dict[str, str]):
     """Reduce the space occupied by the Borg archive by removing unused data."""
-    LOGGER.info(f"Compacting repository after removing old archives ({repository})")
+    LOGGER.info("Compacting repository after removing old archives (%s)", repository)
     run(
         [
             "borg",
@@ -355,7 +355,7 @@ def _create_borg_archive(
     if os.path.isdir(dn_current):
         run(["umount", dn_current], dry_run, check=False)
     else:
-        LOGGER.info("Creating " + dn_current)
+        LOGGER.info("Creating %s", dn_current)
         os.makedirs(dn_current)
 
     run(
@@ -393,7 +393,7 @@ def _create_borg_archive(
         )
     finally:
         run(["umount", dn_current], dry_run)
-        LOGGER.info("Removing " + dn_current)
+        LOGGER.info("Removing %s", dn_current)
         os.rmdir(dn_current)
 
 
@@ -407,9 +407,9 @@ def run(
 ) -> str:
     """Print and run a command."""
     if dry_run:
-        LOGGER.info("Skipping " + " ".join(cmd))
+        LOGGER.info("Skipping %s", " ".join(cmd))
         return ""
-    LOGGER.info("Running " + " ".join(cmd))
+    LOGGER.info("Running %s", " ".join(cmd))
     # Make sure output is written in correct order.
     sys.stdout.flush()
 

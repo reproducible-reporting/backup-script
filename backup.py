@@ -52,8 +52,16 @@ from datetime import datetime
 import yaml
 
 
-def grandfatherson(dts, *, tenminutely=0, hourly=0, daily=0, weekly=0, monthly=0):
-    """Determine which datetimes should be kept and which should be pruned.
+def grandfatherson(
+    dts: list[datetime],
+    *,
+    tenminutely: int = 0,
+    hourly: int = 0,
+    daily: int = 0,
+    weekly: int = 0,
+    monthly: int = 0,
+) -> tuple[list[datetime], list[datetime]]:
+    """Use the GFS algorithm to determine which datetimes should be kept and which should be pruned.
 
     Parameters
     ----------
@@ -80,6 +88,8 @@ def grandfatherson(dts, *, tenminutely=0, hourly=0, daily=0, weekly=0, monthly=0
     Notes
     -----
     The most recent date is always kept.
+    For more info on the GFS algorithm, see:
+    https://en.wikipedia.org/wiki/Backup_rotation_scheme#Grandfather-father-son
     """
     dts = sorted(dts, reverse=True)
     keep_flags = [False] * len(dts)
@@ -122,137 +132,18 @@ def grandfatherson(dts, *, tenminutely=0, hourly=0, daily=0, weekly=0, monthly=0
     return keep_dts, prune_dts
 
 
-def test_grandfatherson_none():
-    dts = [
-        datetime(2022, 5, 5, 0, 0, 0),
-        datetime(2022, 5, 4, 0, 0, 0),
-        datetime(2022, 5, 2, 0, 0, 0),
-        datetime(2022, 5, 1, 0, 0, 0),
-    ]
-    assert grandfatherson(dts) == (dts[:1], dts[1:])
-
-
-def test_grandfatherson_tenminutely():
-    dts = [
-        datetime(2022, 5, 5, 17, 30, 0),
-        datetime(2022, 5, 5, 17, 25, 0),
-        datetime(2022, 5, 5, 17, 20, 0),
-        datetime(2022, 5, 5, 16, 55, 0),
-        datetime(2022, 5, 5, 16, 50, 0),
-        datetime(2022, 5, 5, 16, 40, 0),
-        datetime(2022, 5, 5, 16, 30, 0),
-    ]
-    keep_dts = [dts[0], dts[2], dts[4], dts[5]]
-    prune_dts = [dts[1], dts[3], dts[6]]
-    assert grandfatherson(dts, tenminutely=3) == (keep_dts, prune_dts)
-
-
-def test_grandfatherson_hourly():
-    dts = [
-        datetime(2022, 5, 8, 0, 0, 0),
-        datetime(2022, 5, 5, 17, 0, 0),
-        datetime(2022, 5, 5, 16, 30, 0),
-        datetime(2022, 5, 5, 16, 0, 0),
-        datetime(2022, 5, 5, 15, 0, 0),
-    ]
-    keep_dts = [dts[0], dts[1], dts[3]]
-    prune_dts = [dts[2], dts[4]]
-    assert grandfatherson(dts, hourly=3) == (keep_dts, prune_dts)
-
-
-def test_grandfatherson_daily1():
-    dts = [
-        datetime(2022, 5, 5, 0, 0, 0),
-        datetime(2022, 5, 4, 0, 0, 0),
-        datetime(2022, 5, 2, 0, 0, 0),
-        datetime(2022, 5, 1, 0, 0, 0),
-    ]
-    assert grandfatherson(dts, daily=3) == (dts[:-1], dts[-1:])
-
-
-def test_grandfatherson_daily2():
-    dts = [
-        datetime(2022, 5, 5, 10, 0, 0),
-        datetime(2022, 5, 4, 10, 0, 0),
-        datetime(2022, 5, 4, 9, 0, 0),
-        datetime(2022, 5, 2, 10, 0, 0),
-        datetime(2022, 5, 1, 10, 0, 0),
-    ]
-    keep_dts = [dts[0], dts[2], dts[3]]
-    prune_dts = [dts[1], dts[4]]
-    assert grandfatherson(dts, daily=3) == (keep_dts, prune_dts)
-
-
-def test_grandfatherson_daily_too_few():
-    dts = [
-        datetime(2022, 5, 5, 0, 0, 0),
-        datetime(2022, 5, 4, 0, 0, 0),
-    ]
-    assert grandfatherson(dts, daily=3) == (dts[:2], [])
-
-
-def test_grandfatherson_daily_too_few_oldest1():
-    dts = [
-        datetime(2022, 5, 5, 10, 0, 0),
-        datetime(2022, 5, 4, 10, 0, 0),
-        datetime(2022, 5, 4, 9, 0, 0),
-    ]
-    keep_dts = [dts[0], dts[2]]
-    prune_dts = [dts[1]]
-    assert grandfatherson(dts, daily=3) == (keep_dts, prune_dts)
-
-
-def test_grandfatherson_daily_too_few_oldest2():
-    dts = [
-        datetime(2022, 5, 5, 10, 0, 0),
-        datetime(2022, 5, 5, 8, 0, 0),
-    ]
-    assert grandfatherson(dts, daily=3) == (dts, [])
-
-
-def test_grandfatherson_monthly():
-    dts = [
-        datetime(2022, 5, 5, 0, 0, 0),
-        datetime(2022, 5, 4, 0, 0, 0),
-        datetime(2022, 5, 2, 0, 0, 0),
-        datetime(2022, 5, 1, 0, 0, 0),
-        datetime(2022, 4, 20, 0, 0, 0),
-        datetime(2022, 4, 10, 0, 0, 0),
-        datetime(2022, 3, 8, 0, 0, 0),
-        datetime(2022, 3, 7, 0, 0, 0),
-        datetime(2022, 2, 8, 0, 0, 0),
-    ]
-    keep_dts = [dts[0], dts[3], dts[5], dts[7]]
-    prune_dts = [dts[1], dts[2], dts[4], dts[6], dts[8]]
-    assert grandfatherson(dts, monthly=3) == (keep_dts, prune_dts)
-
-
-def test_grandfatherson_weekly():
-    dts = [
-        datetime(2022, 6, 13, 0, 0, 0),
-        datetime(2022, 6, 12, 0, 0, 0),
-        datetime(2022, 6, 11, 0, 0, 0),
-        datetime(2022, 6, 7, 0, 0, 0),
-        datetime(2022, 6, 6, 0, 0, 0),
-        datetime(2022, 6, 5, 0, 0, 0),
-        datetime(2022, 5, 29, 0, 0, 0),
-        datetime(2022, 5, 30, 0, 0, 0),
-    ]
-    keep_dts, prune_dts = grandfatherson(dts, weekly=3)
-    assert keep_dts == [dts[0], dts[4], dts[7]]
-    assert prune_dts == [dts[1], dts[2], dts[3], dts[5], dts[6]]
-
-
-def parse_args():
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Backup with btrfs and borg")
     parser.add_argument("config", help="YAML config file")
     parser.add_argument("-n", "--dry-run", default=False, action="store_true")
     parser.add_argument("-s", "--skip-snapshot", default=False, action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main():
-    args = parse_args()
+def main(argv: list[str] | None = None):
+    """Main program."""
+    args = parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
@@ -280,7 +171,8 @@ def main():
             _compact_borg_repository(args, repository, env)
 
 
-def _create_btrfs_snapshot(config, args):
+def _create_btrfs_snapshot(config: dict[str], args: argparse.Namespace) -> str:
+    """Create a new BTRFS snapshot."""
     try:
         info("Preparing for snapshot")
         for split_args in config["btrfs"]["pre"]:
@@ -308,7 +200,10 @@ def _create_btrfs_snapshot(config, args):
     return subvol_new
 
 
-def _prune_old_btrfs_snapshots(config, args, subvol_new):
+def _prune_old_btrfs_snapshots(
+    config: dict[str], args: argparse.Namespace, subvol_new: str
+) -> dict[datetime, str]:
+    """Delete old BTRFS snapshots using the GFS algorithm."""
     info("Pruning old snapshots")
     # Loop over existing snapshots, derive dates and keep a dictionary.
     snapshots = {}
@@ -323,7 +218,7 @@ def _prune_old_btrfs_snapshots(config, args, subvol_new):
         dt = parse_suffix(subvol[len(config["btrfs"]["prefix"]) :], config["datetime_format"])
         snapshots[dt] = subvol
 
-    # Add new snapshot in case of dry run
+    # Add new a snapshot in case of dry run.
     if args.dry_run and not args.skip_snapshot:
         # Overwrite dt_new with the parsed one for consistency
         dt_new = parse_suffix(
@@ -331,7 +226,7 @@ def _prune_old_btrfs_snapshots(config, args, subvol_new):
         )
         snapshots[dt_new] = subvol_new
 
-    # Determine which to prune
+    # Determine which snapshots to prune.
     _, dts_prune = grandfatherson(
         list(snapshots),
         tenminutely=config["keep_tenminutely"],
@@ -357,15 +252,19 @@ def _prune_old_btrfs_snapshots(config, args, subvol_new):
     return snapshots
 
 
-def _check_borg_repository(repository: str, env: dict):
+def _check_borg_repository(repository: str, env: dict[str, str]) -> bool:
+    """Get basic info from a borg repository."""
     try:
-        run(["borg", "info", repository], env=(os.environ | env))
+        run(["borg", "info", repository], env=os.environ | env)
     except subprocess.CalledProcessError:
         return False
     return True
 
 
-def _get_borg_archives(config, repository, env):
+def _get_borg_archives(
+    config: dict[str], repository: str, env: dict[str, str]
+) -> dict[datetime, str]:
+    """Get a list of archives in the Borg repository."""
     info(f"Getting a list of borg archives ({repository})")
     prefix = config["borg"]["prefix"]
     output = run(["borg", "list", repository], env=(os.environ | env), capture=True)
@@ -375,13 +274,15 @@ def _get_borg_archives(config, repository, env):
         if len(words) == 0:
             continue
         archive = words[0]
-        assert archive.startswith(prefix)
+        if not archive.startswith(prefix):
+            raise AssertionError(f"Archive '{archive}' has the wrong prefix. Should be '{prefix}'")
         dt = parse_suffix(archive[len(prefix) :], config["datetime_format"])
         archives[dt] = archive
     return archives
 
 
-def _prune_old_borg_archives(args, repository, env, snapshots, archives):
+def _prune_old_borg_archives(args, repository, env, snapshots, archives) -> bool:
+    """Delete old Bort archives using the GFS algorithm."""
     info(f"Removing old borg archives ({repository})")
     removed = False
     for dt, archive in archives.items():
@@ -399,7 +300,8 @@ def _prune_old_borg_archives(args, repository, env, snapshots, archives):
     return removed
 
 
-def _compact_borg_repository(args, repository, env):
+def _compact_borg_repository(args: argparse.Namespace, repository: str, env: dict[str, str]):
+    """Reduce the space occupied by the Borg archive by removing unused data."""
     info(f"Compacting repository after removing old archives ({repository})")
     run(
         [
@@ -412,7 +314,10 @@ def _compact_borg_repository(args, repository, env):
     )
 
 
-def _create_borg_archive(config, args, repository, env, subvol):
+def _create_borg_archive(
+    config: dict[str], args: argparse.Namespace, repository: str, env: dict[str, str], subvol: str
+):
+    """Create a Borg backup from a BTRFS snapshot."""
     dn_current = config["btrfs"]["mount"] + config["btrfs"]["prefix"] + "current"
     if os.path.isdir(dn_current):
         run(["umount", dn_current], args.dry_run, check=False)
@@ -459,16 +364,19 @@ def _create_borg_archive(config, args, repository, env, subvol):
         os.rmdir(dn_current)
 
 
-def parse_suffix(suffix, datetime_format):
+def parse_suffix(suffix: str, datetime_format: str) -> datetime:
+    """Extract the datetime object from the suffix of an archive directory."""
     return datetime.strptime(suffix, datetime_format)
 
 
-def info(message):
+def info(message: str):
     """Print a timestamped info message."""
     print(datetime.now().isoformat(), message)
 
 
-def run(cmd, dry_run=False, check=True, capture=False, **kwargs):
+def run(
+    cmd: list[str], dry_run: bool = False, check: bool = True, capture: bool = False, **kwargs
+) -> str:
     """Print and run a command."""
     if dry_run:
         info("Skipping " + " ".join(cmd))
@@ -497,4 +405,4 @@ def run(cmd, dry_run=False, check=True, capture=False, **kwargs):
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

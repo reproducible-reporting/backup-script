@@ -43,6 +43,7 @@ borg:
 """
 
 import argparse
+import logging
 import os
 import signal
 import subprocess
@@ -50,6 +51,8 @@ import sys
 from datetime import datetime
 
 import yaml
+
+LOGGER = logging.getLogger(__name__)
 
 
 def grandfatherson(
@@ -163,6 +166,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None):
     """Main program."""
     args = parse_args(argv)
+
+    # Set log level
+    logging.basicConfig(level=logging.ERROR if args.quiet else logging.INFO)
+
+    # Load yaml config file
     with open(args.config, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
@@ -174,17 +182,17 @@ def main(argv: list[str] | None = None):
     env = config["borg"].get("env", {})
     for repository in config["borg"]["repositories"]:
         if not _check_borg_repository(repository, env):
-            info(f"Could not access {repository}")
+            LOGGER.info(f"Could not access {repository}")
             continue
         archives = _get_borg_archives(config, repository, env)
 
-        info(f"Creating new borg archives ({repository})")
+        LOGGER.info(f"Creating new borg archives ({repository})")
         for dt_keep, subvol in snapshots.items():
             if dt_keep in archives:
                 continue
             _create_borg_archive(config, args.dry_run, repository, env, subvol)
 
-        info(f"Pruning old archives if any ({repository})")
+        LOGGER.info(f"Pruning old archives if any ({repository})")
         removed = _prune_old_borg_archives(args.dry_run, repository, env, snapshots, archives)
         if removed:
             _compact_borg_repository(args.dry_run, repository, env)
@@ -193,11 +201,11 @@ def main(argv: list[str] | None = None):
 def _create_btrfs_snapshot(config: dict[str], dry_run: bool) -> str:
     """Create a new BTRFS snapshot."""
     try:
-        info("Preparing for snapshot")
+        LOGGER.info("Preparing for snapshot")
         for split_args in config["btrfs"]["pre"]:
             run(split_args, dry_run)
 
-        info("Making a new snapshot")
+        LOGGER.info("Making a new snapshot")
         suffix_new = datetime.now().strftime(config["datetime_format"])
         subvol_new = config["btrfs"]["prefix"] + suffix_new
         dn_new = config["btrfs"]["mount"] + subvol_new
@@ -213,7 +221,7 @@ def _create_btrfs_snapshot(config: dict[str], dry_run: bool) -> str:
             dry_run,
         )
     finally:
-        info("Cleaning after snapshot")
+        LOGGER.info("Cleaning after snapshot")
         for split_args in config["btrfs"]["post"]:
             run(split_args, dry_run)
     return subvol_new
@@ -223,7 +231,7 @@ def _prune_old_btrfs_snapshots(
     config: dict[str], dry_run: bool, skip_snapshot: bool, subvol_new: str
 ) -> dict[datetime, str]:
     """Delete old BTRFS snapshots using the GFS algorithm."""
-    info("Pruning old snapshots")
+    LOGGER.info("Pruning old snapshots")
     # Loop over existing snapshots, derive dates and keep a dictionary.
     snapshots = {}
     output = run(["btrfs", "subvolume", "list", config["btrfs"]["mount"]], capture=True)
@@ -284,7 +292,7 @@ def _get_borg_archives(
     config: dict[str], repository: str, env: dict[str, str]
 ) -> dict[datetime, str]:
     """Get a list of archives in the Borg repository."""
-    info(f"Getting a list of borg archives ({repository})")
+    LOGGER.info(f"Getting a list of borg archives ({repository})")
     prefix = config["borg"]["prefix"]
     output = run(["borg", "list", repository], env=(os.environ | env), capture=True)
     archives = {}
@@ -308,7 +316,7 @@ def _prune_old_borg_archives(
     archives: dict[datetime, str],
 ) -> bool:
     """Delete old Bort archives using the GFS algorithm."""
-    info(f"Removing old borg archives ({repository})")
+    LOGGER.info(f"Removing old borg archives ({repository})")
     removed = False
     for dt, archive in archives.items():
         if dt not in snapshots:
@@ -327,7 +335,7 @@ def _prune_old_borg_archives(
 
 def _compact_borg_repository(dry_run: bool, repository: str, env: dict[str, str]):
     """Reduce the space occupied by the Borg archive by removing unused data."""
-    info(f"Compacting repository after removing old archives ({repository})")
+    LOGGER.info(f"Compacting repository after removing old archives ({repository})")
     run(
         [
             "borg",
@@ -347,7 +355,7 @@ def _create_borg_archive(
     if os.path.isdir(dn_current):
         run(["umount", dn_current], dry_run, check=False)
     else:
-        info("Creating " + dn_current)
+        LOGGER.info("Creating " + dn_current)
         os.makedirs(dn_current)
 
     run(
@@ -385,7 +393,7 @@ def _create_borg_archive(
         )
     finally:
         run(["umount", dn_current], dry_run)
-        info("Removing " + dn_current)
+        LOGGER.info("Removing " + dn_current)
         os.rmdir(dn_current)
 
 
@@ -394,19 +402,14 @@ def parse_suffix(suffix: str, datetime_format: str) -> datetime:
     return datetime.strptime(suffix, datetime_format)
 
 
-def info(message: str):
-    """Print a timestamped info message."""
-    print(datetime.now().isoformat(), message)
-
-
 def run(
     cmd: list[str], dry_run: bool = False, check: bool = True, capture: bool = False, **kwargs
 ) -> str:
     """Print and run a command."""
     if dry_run:
-        info("Skipping " + " ".join(cmd))
+        LOGGER.info("Skipping " + " ".join(cmd))
         return ""
-    info("Running " + " ".join(cmd))
+    LOGGER.info("Running " + " ".join(cmd))
     # Make sure output is written in correct order.
     sys.stdout.flush()
 

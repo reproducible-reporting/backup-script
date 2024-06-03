@@ -134,10 +134,29 @@ def grandfatherson(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(description="Backup with btrfs and borg")
+    parser = argparse.ArgumentParser(prog="backup.py", description="Backup with btrfs and borg")
     parser.add_argument("config", help="YAML config file")
-    parser.add_argument("-n", "--dry-run", default=False, action="store_true")
-    parser.add_argument("-s", "--skip-snapshot", default=False, action="store_true")
+    parser.add_argument(
+        "-n",
+        "--dry-run",
+        default=False,
+        action="store_true",
+        help="Skip actual BTRFS and Borg commands, except when getting info from them.",
+    )
+    parser.add_argument(
+        "-s",
+        "--skip-snapshot",
+        default=False,
+        action="store_true",
+        help="Do not make a new snapshot. Only run Borg.",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        default=False,
+        action="store_true",
+        help="Only show output of BTRFS and Borg commands.",
+    )
     return parser.parse_args(argv)
 
 
@@ -148,8 +167,8 @@ def main(argv: list[str] | None = None):
         config = yaml.safe_load(f)
 
     # Work on the btrfs part
-    subvol_new = None if args.skip_snapshot else _create_btrfs_snapshot(config, args)
-    snapshots = _prune_old_btrfs_snapshots(config, args, subvol_new)
+    subvol_new = None if args.skip_snapshot else _create_btrfs_snapshot(config, args.dry_run)
+    snapshots = _prune_old_btrfs_snapshots(config, args.dry_run, args.skip_snapshot, subvol_new)
 
     # Work on the borg part
     env = config["borg"].get("env", {})
@@ -163,20 +182,20 @@ def main(argv: list[str] | None = None):
         for dt_keep, subvol in snapshots.items():
             if dt_keep in archives:
                 continue
-            _create_borg_archive(config, args, repository, env, subvol)
+            _create_borg_archive(config, args.dry_run, repository, env, subvol)
 
         info(f"Pruning old archives if any ({repository})")
-        removed = _prune_old_borg_archives(args, repository, env, snapshots, archives)
+        removed = _prune_old_borg_archives(args.dry_run, repository, env, snapshots, archives)
         if removed:
-            _compact_borg_repository(args, repository, env)
+            _compact_borg_repository(args.dry_run, repository, env)
 
 
-def _create_btrfs_snapshot(config: dict[str], args: argparse.Namespace) -> str:
+def _create_btrfs_snapshot(config: dict[str], dry_run: bool) -> str:
     """Create a new BTRFS snapshot."""
     try:
         info("Preparing for snapshot")
         for split_args in config["btrfs"]["pre"]:
-            run(split_args, args.dry_run)
+            run(split_args, dry_run)
 
         info("Making a new snapshot")
         suffix_new = datetime.now().strftime(config["datetime_format"])
@@ -191,17 +210,17 @@ def _create_btrfs_snapshot(config: dict[str], args: argparse.Namespace) -> str:
                 config["btrfs"]["mount"] + config["btrfs"]["source"],
                 dn_new,
             ],
-            args.dry_run,
+            dry_run,
         )
     finally:
         info("Cleaning after snapshot")
         for split_args in config["btrfs"]["post"]:
-            run(split_args, args.dry_run)
+            run(split_args, dry_run)
     return subvol_new
 
 
 def _prune_old_btrfs_snapshots(
-    config: dict[str], args: argparse.Namespace, subvol_new: str
+    config: dict[str], dry_run: bool, skip_snapshot: bool, subvol_new: str
 ) -> dict[datetime, str]:
     """Delete old BTRFS snapshots using the GFS algorithm."""
     info("Pruning old snapshots")
@@ -219,7 +238,7 @@ def _prune_old_btrfs_snapshots(
         snapshots[dt] = subvol
 
     # Add new a snapshot in case of dry run.
-    if args.dry_run and not args.skip_snapshot:
+    if dry_run and not skip_snapshot:
         # Overwrite dt_new with the parsed one for consistency
         dt_new = parse_suffix(
             subvol_new[len(config["btrfs"]["prefix"]) :], config["datetime_format"]
@@ -245,7 +264,7 @@ def _prune_old_btrfs_snapshots(
                 "delete",
                 config["btrfs"]["mount"] + snapshots[dt],
             ],
-            args.dry_run,
+            dry_run,
         )
         del snapshots[dt]
 
@@ -281,7 +300,13 @@ def _get_borg_archives(
     return archives
 
 
-def _prune_old_borg_archives(args, repository, env, snapshots, archives) -> bool:
+def _prune_old_borg_archives(
+    dry_run: bool,
+    repository: str,
+    env: dict[str, str],
+    snapshots: dict[datetime, str],
+    archives: dict[datetime, str],
+) -> bool:
     """Delete old Bort archives using the GFS algorithm."""
     info(f"Removing old borg archives ({repository})")
     removed = False
@@ -294,13 +319,13 @@ def _prune_old_borg_archives(args, repository, env, snapshots, archives) -> bool
                     "delete",
                     f"{repository}::{archive}",
                 ],
-                args.dry_run,
+                dry_run,
                 env=(os.environ | env),
             )
     return removed
 
 
-def _compact_borg_repository(args: argparse.Namespace, repository: str, env: dict[str, str]):
+def _compact_borg_repository(dry_run: bool, repository: str, env: dict[str, str]):
     """Reduce the space occupied by the Borg archive by removing unused data."""
     info(f"Compacting repository after removing old archives ({repository})")
     run(
@@ -309,25 +334,25 @@ def _compact_borg_repository(args: argparse.Namespace, repository: str, env: dic
             "compact",
             repository,
         ],
-        args.dry_run,
+        dry_run,
         env=(os.environ | env),
     )
 
 
 def _create_borg_archive(
-    config: dict[str], args: argparse.Namespace, repository: str, env: dict[str, str], subvol: str
+    config: dict[str], dry_run: bool, repository: str, env: dict[str, str], subvol: str
 ):
     """Create a Borg backup from a BTRFS snapshot."""
     dn_current = config["btrfs"]["mount"] + config["btrfs"]["prefix"] + "current"
     if os.path.isdir(dn_current):
-        run(["umount", dn_current], args.dry_run, check=False)
+        run(["umount", dn_current], dry_run, check=False)
     else:
         info("Creating " + dn_current)
         os.makedirs(dn_current)
 
     run(
         ["mount", "UUID=" + config["btrfs"]["uuid"], dn_current, "-o", f"subvol={subvol},noatime"],
-        args.dry_run,
+        dry_run,
     )
 
     # Ignore non-existing paths
@@ -354,12 +379,12 @@ def _create_borg_archive(
                 f"{repository}::{config['borg']['prefix']}{suffix}",
             ]
             + paths,
-            args.dry_run,
+            dry_run,
             env=(os.environ | env),
             cwd=dn_current,
         )
     finally:
-        run(["umount", dn_current], args.dry_run)
+        run(["umount", dn_current], dry_run)
         info("Removing " + dn_current)
         os.rmdir(dn_current)
 

@@ -49,6 +49,7 @@ import signal
 import subprocess
 import sys
 from datetime import datetime
+from time import sleep
 
 import yaml
 
@@ -395,6 +396,8 @@ def _create_borg_archive(
             cwd=dn_current,
         )
     finally:
+        # It may take some time before the disk is no longer considered "in use".
+        sleep(1.0)
         run(["umount", dn_current], dry_run)
         LOGGER.info("Removing %s", dn_current)
         os.rmdir(dn_current)

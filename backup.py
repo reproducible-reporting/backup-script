@@ -367,10 +367,11 @@ def _create_borg_archive(
         dry_run,
     )
 
-    # Ignore non-existing paths
-    paths = [
-        path for path in config["borg"]["paths"] if os.path.exists(os.path.join(dn_current, path))
-    ]
+    paths = config["borg"]["paths"]
+    for path in paths:
+        full_path = os.path.join(dn_current, path)
+        if not os.path.exists(full_path):
+            raise ValueError(f"Path does not exist: {full_path}")
 
     try:
         suffix = subvol[len(config["btrfs"]["prefix"]) :]

@@ -359,7 +359,7 @@ def _create_borg_archive(
     if os.path.isdir(dn_current):
         run(["umount", dn_current], dry_run, check=False)
     else:
-        LOGGER.info("Creating %s", dn_current)
+        LOGGER.info("Creating directory %s", dn_current)
         os.makedirs(dn_current)
 
     run(
@@ -413,10 +413,13 @@ def run(
     cmd: list[str], dry_run: bool = False, check: bool = True, capture: bool = False, **kwargs
 ) -> str:
     """Print and run a command."""
+    cmd_info = " ".join(cmd)
+    if "cwd" in kwargs:
+        cmd_info = f"{cmd_info}  # in {kwargs['cwd']}"
     if dry_run:
-        LOGGER.info("Skipping %s", " ".join(cmd))
+        LOGGER.info("Skipping %s", cmd_info)
         return ""
-    LOGGER.info("Running %s", " ".join(cmd))
+    LOGGER.info("Running %s", cmd_info)
     # Make sure output is written in correct order.
     sys.stdout.flush()
 

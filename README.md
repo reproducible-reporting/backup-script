@@ -1,5 +1,9 @@
 # BTRFS + Borg backup script
 
+🚨 This repository has been archived and is superseded by [BtrUp](https://github.com/reproducible-reporting/btrup) 🚨
+
+---
+
 You use this script at your own risk.
 You are the only person responsible for any damage caused by the use of this script.
 
